@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+import glob
 import os
 import platform
 import shutil
@@ -13,12 +14,12 @@ def out_dir():
     return "out"
 
 
-def install_dir():
-    return os.path.join(out_dir(), "install")
+def protobuf_install_dir():
+    return os.path.join(out_dir(), "protobuf_install")
 
 
-def build_dir():
-    return os.path.join(out_dir(), "build")
+def protobuf_build_dir():
+    return os.path.join(out_dir(), "protobuf_build")
 
 
 def proto_dir():
@@ -64,15 +65,18 @@ def prepare_subrepos():
 def cleanup_previous_build():
     print("\nCleaning up previous build...\n")
     # subprocess.run(["git", "clean", "-fdx"])
-    shutil.rmtree(install_dir(), ignore_errors=True)
-    shutil.rmtree(build_dir(), ignore_errors=True)
+    shutil.rmtree(protobuf_install_dir(), ignore_errors=True)
+    shutil.rmtree(protobuf_build_dir(), ignore_errors=True)
 
 
 def build_libprotobuf_windows():
-    subprocess.run(["cmake", "-S", protobuf_source_dir(), "-B", build_dir(), "-G", "Visual Studio 16 2019", "-A", "x64",
+    subprocess.run(["cmake", "-S", protobuf_source_dir(), "-B", protobuf_build_dir(), "-G", "Visual Studio 16 2019", "-A", "x64",
+                    "-DCMAKE_BUILD_TYPE=$<$<CONFIG:Debug>:Debug>$<$<CONFIG:Release>:Release>",
                     "-DCMAKE_INSTALL_LIBDIR=lib/" + platform_name() + "/$<$<CONFIG:Debug>:Debug>$<$<CONFIG:Release>:Release>",
-                    "-DCMAKE_INSTALL_PREFIX=" + install_dir(),
-                    "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>",
+                    "-DCMAKE_INSTALL_PREFIX=" + protobuf_install_dir(),
+                    # "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>DLL",
+                    "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL",
+                    "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW", # prevent cmake ignoring CMAKE_MSVC_RUNTIME_LIBRARY in cmake v3.15+
                     "-Dprotobuf_BUILD_EXAMPLES=OFF",
                     "-Dprotobuf_BUILD_TESTS=OFF",
                     # "-Dprotobuf_BUILD_SHARED_LIBS=ON",
@@ -81,22 +85,23 @@ def build_libprotobuf_windows():
                     "-Dprotobuf_MSVC_STATIC_RUNTIME=OFF",
                     "-Dprotobuf_WITH_ZLIB=OFF",
                     ])
-    subprocess.run(["cmake", "--build", build_dir(), "--target", "install", "--config", "Debug"])
-    subprocess.run(["cmake", "--build", build_dir(), "--target", "install", "--config", "Release"])
+    subprocess.run(["cmake", "--build", protobuf_build_dir(), "--target", "install", "--config", "Debug"])
+    subprocess.run(["cmake", "--build", protobuf_build_dir(), "--target", "install", "--config", "Release"])
 
 
 def build_libprotobuf_mac():
-    subprocess.run(["cmake", "-S", protobuf_source_dir(), "-B", build_dir(), "-G", "Xcode",
+    subprocess.run(["cmake", "-S", protobuf_source_dir(), "-B", protobuf_build_dir(), "-G", "Xcode",
+                    "-DCMAKE_BUILD_TYPE=$<$<CONFIG:Debug>:Debug>$<$<CONFIG:Release>:Release>",
                     "-DCMAKE_INSTALL_LIBDIR=lib/" + platform_name() + "/$<$<CONFIG:Debug>:Debug>$<$<CONFIG:Release>:Release>",
-                    "-DCMAKE_INSTALL_PREFIX=" + install_dir(),
+                    "-DCMAKE_INSTALL_PREFIX=" + protobuf_install_dir(),
                     "-Dprotobuf_BUILD_EXAMPLES=OFF",
                     "-Dprotobuf_BUILD_TESTS=OFF",
                     "-Dprotobuf_DEBUG_POSTFIX=",
                     "-Dprotobuf_DISABLE_RTTI=ON",
                     "-Dprotobuf_WITH_ZLIB=OFF",
                     ])
-    subprocess.run(["cmake", "--build", build_dir(), "--target", "install", "--config", "Debug"])
-    subprocess.run(["cmake", "--build", build_dir(), "--target", "install", "--config", "Release"])
+    subprocess.run(["cmake", "--build", protobuf_build_dir(), "--target", "install", "--config", "Debug"])
+    subprocess.run(["cmake", "--build", protobuf_build_dir(), "--target", "install", "--config", "Release"])
 
 
 def build_libprotobuf():
@@ -124,12 +129,16 @@ def copy_libprotobuf_files(plugin_path):
 
     # Cleanup old install
     shutil.rmtree(include_path, ignore_errors=True)
-    shutil.rmtree(lib_path, ignore_errors=True)
-
-    # Copy files
     os.makedirs(module_path, exist_ok=True)
-    shutil.copytree(os.path.join(install_dir(), "include"), include_path)
-    shutil.copytree(os.path.join(install_dir(), "lib", platform_name()), lib_path)
+
+    # Copy includes
+    shutil.copytree(os.path.join(protobuf_install_dir(), "include"), include_path)
+
+    # Copy only libprotobuf lib files to avoid bloating the plugin
+    for config in [ "Debug", "Release" ]:
+        for file in glob.glob(os.path.join(protobuf_install_dir(), "lib", platform_name(), "*/libprotobuf.*")):
+            os.makedirs(os.path.join(lib_path, config), exist_ok=True)
+            shutil.copy(file, os.path.join(lib_path, config, os.path.basename(file)))
 
 
 def pb_h_content_prefix():
@@ -177,9 +186,9 @@ def build_pb_files():
 
     match platform.system():
         case "Windows":
-            protoc = os.path.join(install_dir(), "bin", "protoc.exe")
+            protoc = os.path.join(protobuf_install_dir(), "bin", "protoc.exe")
         case "Mac":
-            protoc = os.path.join(install_dir(), "bin", "protoc")
+            protoc = os.path.join(protobuf_install_dir(), "bin", "protoc")
         case _:
             print("Unsupported platform: " + platform.system())
             exit(1)
