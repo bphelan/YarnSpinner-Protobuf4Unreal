@@ -14,20 +14,20 @@ def out_dir():
     return "out"
 
 
-def protobuf_install_dir():
-    return os.path.join(out_dir(), "protobuf_install")
-
-
 def protobuf_build_dir():
     return os.path.join(out_dir(), "protobuf_build")
 
 
-def proto_dir():
-    return "YarnSpinnerProto"
+def protobuf_install_dir():
+    return os.path.join(out_dir(), "protobuf_install")
 
 
-def proto_out_dir():
-    return os.path.join(out_dir(), "proto_out")
+def yarnspinner_proto_build_dir():
+    return os.path.join(out_dir(), "YarnSpinner_proto_build")
+
+
+def yarnspinner_proto_install_dir():
+    return os.path.join(out_dir(), "YarnSpinner_proto_install")
 
 
 def pb_h_file_dest(plugin_path):
@@ -107,8 +107,6 @@ def build_libprotobuf_mac():
 def build_libprotobuf():
     cleanup_previous_build()
 
-    prepare_subrepos()
-
     print("\nBuilding...\n")
     match platform.system():
         case "Windows":
@@ -136,7 +134,7 @@ def copy_libprotobuf_files(plugin_path):
 
     # Copy only libprotobuf lib files to avoid bloating the plugin
     for config in [ "Debug", "Release" ]:
-        for file in glob.glob(os.path.join(protobuf_install_dir(), "lib", platform_name(), "*/libprotobuf.*")):
+        for file in glob.glob(os.path.join(protobuf_install_dir(), "lib", platform_name(), config, "libprotobuf.*")):
             os.makedirs(os.path.join(lib_path, config), exist_ok=True)
             shutil.copy(file, os.path.join(lib_path, config, os.path.basename(file)))
 
@@ -181,8 +179,19 @@ def build_pb_files():
     print("\nBuilding .pb. files from .proto files...\n")
 
     # Cleanup old build
-    shutil.rmtree(proto_out_dir(), ignore_errors=True)
-    os.makedirs(proto_out_dir(), exist_ok=True)
+    shutil.rmtree(yarnspinner_proto_build_dir(), ignore_errors=True)
+    os.makedirs(yarnspinner_proto_build_dir(), exist_ok=True)
+    shutil.rmtree(yarnspinner_proto_install_dir(), ignore_errors=True)
+    os.makedirs(yarnspinner_proto_install_dir(), exist_ok=True)
+
+    # Copy .proto files to build dir
+    yarn_spinner_proto = os.path.join("YarnSpinner", "YarnSpinner", "yarn_spinner.proto")
+    compiler_output_proto = os.path.join("YarnSpinner-Console", "src", "YarnSpinner.Console", "compiler_output.proto")
+    for file in [ yarn_spinner_proto, compiler_output_proto ]:
+        if os.path.exists(file) is False:
+            print("Proto file not found: " + file)
+            exit(1)
+        shutil.copy(file, yarnspinner_proto_build_dir())
 
     match platform.system():
         case "Windows":
@@ -198,7 +207,7 @@ def build_pb_files():
         exit(1)
 
     # Run the command
-    subprocess.run([protoc, "--proto_path=" + proto_dir(), "--cpp_out=dllexport_decl=YARNSPINNER_API:" + proto_out_dir(), "yarn_spinner.proto", "compiler_output.proto"])
+    subprocess.run([protoc, "--proto_path=" + yarnspinner_proto_build_dir(), "--cpp_out=dllexport_decl=YARNSPINNER_API:" + yarnspinner_proto_install_dir(), "yarn_spinner.proto", "compiler_output.proto"])
 
 
 def _fix_pb_file(file, prefix_func):
@@ -207,7 +216,7 @@ def _fix_pb_file(file, prefix_func):
     old_compiler_include = '#include "compiler_output.pb.h"'
     new_compiler_include = '#include "YarnSpinnerCore/compiler_output.pb.h"'
 
-    source_file = os.path.join(proto_out_dir(), file)
+    source_file = os.path.join(yarnspinner_proto_install_dir(), file)
 
     if os.path.exists(source_file) is False:
         print("Compiled proto files not found: " + source_file)
@@ -241,10 +250,10 @@ def copy_pb_files(plugin_path):
     print("\nCopying proto files to Unreal plugin...\n")
 
     for source_file in pb_h_files():
-        shutil.copy(os.path.join(proto_out_dir(), source_file), pb_h_file_dest(plugin_path))
+        shutil.copy(os.path.join(yarnspinner_proto_install_dir(), source_file), pb_h_file_dest(plugin_path))
 
     for source_file in pb_cc_files():
-        shutil.copy(os.path.join(proto_out_dir(), source_file), pb_cc_file_dest(plugin_path))
+        shutil.copy(os.path.join(yarnspinner_proto_install_dir(), source_file), pb_cc_file_dest(plugin_path))
 
 
 if __name__ == "__main__":
@@ -258,6 +267,8 @@ if __name__ == "__main__":
         exit(1)
 
     plugin_path = os.path.realpath(args.plugin_path)
+
+    prepare_subrepos()
 
     # Build and install the protobuf library
     build_libprotobuf()
